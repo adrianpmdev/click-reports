@@ -32,6 +32,6 @@ app.include_router(clicks.router)
 app.include_router(stats.router)
 
 
-@app.get("/", tags=["Health"])
+@app.get("/health", tags=["Health"])
 def health():
     return {"status": "ok"}

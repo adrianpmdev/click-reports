@@ -10,8 +10,11 @@ import random
 import sqlite3
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-from app.config import DB_PATH, SAMPLE_CLICKS, SAMPLE_DAYS
+from fastapi import Depends
+
+from app import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
@@ -40,8 +43,8 @@ SAMPLE_PRODUCTS = [
 
 def get_connection() -> sqlite3.Connection:
     """Opens a new SQLite connection that returns rows as dict-like objects."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(config.DB_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -56,24 +59,29 @@ def get_db() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+DbDep = Annotated[sqlite3.Connection, Depends(get_db)]
+
+
 def _random_clicks(product_ids: list[int]) -> list[tuple[int, str]]:
     """Generates clicks spread over the last SAMPLE_DAYS days."""
     rng = random.Random(42)  # Fixed seed: same sample data on every fresh start.
     now = datetime.now(timezone.utc)
     weights = [5, 3, 4, 1, 2][: len(product_ids)]
     clicks = []
-    for _ in range(SAMPLE_CLICKS):
+    for _ in range(config.SAMPLE_CLICKS):
         product_id = rng.choices(product_ids, weights=weights)[0]
-        clicked_at = now - timedelta(minutes=rng.randint(0, SAMPLE_DAYS * 24 * 60))
+        clicked_at = now - timedelta(minutes=rng.randint(0, config.SAMPLE_DAYS * 24 * 60))
         clicks.append((product_id, clicked_at.isoformat()))
     return clicks
 
 
 def init_db() -> None:
-    """Creates the schema and inserts sample data if the database is empty."""
+    """Creates the schema and, if enabled, inserts sample data when the database is empty."""
     connection = get_connection()
     try:
         connection.executescript(SCHEMA)
+        if not config.SEED_SAMPLE_DATA:
+            return
         count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if count == 0:
             connection.executemany(
